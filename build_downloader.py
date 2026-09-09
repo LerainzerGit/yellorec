@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
-import tempfile
 import shutil
 
 # Configure logging
@@ -26,6 +25,9 @@ ARCHIVE_URL = "https://archive.recagain.site"
 BUILD_NUMBER = "20260323"
 BUILDS_DIR = "./builds"
 METADATA_FILE = "./builds/manifest.json"
+# Build timestamp from archive.recagain.site
+BUILD_TIMESTAMP = "2026-03-31T03-05-36Z"
+BUILD_DOWNLOAD_URL = f"{ARCHIVE_URL}/download/{BUILD_TIMESTAMP}"
 
 class BuildDownloader:
     """Download and manage Rec Room builds"""
@@ -81,87 +83,75 @@ class BuildDownloader:
                 except:
                     continue
             
-            logger.warning("Could not fetch builds list, proceeding with direct download")
-            return []
+            logger.warning("Could not fetch builds list, using timestamp-based download")
+            return [{"timestamp": BUILD_TIMESTAMP, "build": BUILD_NUMBER}]
         
         except Exception as e:
             logger.error(f"Error fetching builds list: {e}")
             return []
     
-    def download_build(self, build_number: str) -> bool:
-        """Download specific build"""
+    def download_build(self, build_number: str, download_url: str = BUILD_DOWNLOAD_URL) -> bool:
+        """Download specific build from archive"""
         try:
             logger.info(f"Starting download of build {build_number}")
+            logger.info(f"Download URL: {download_url}")
             
             # Check if already downloaded
             build_path = self.builds_dir / build_number
-            if build_path.exists():
+            if build_path.exists() and (build_path / f"RecRoom_{build_number}.zip").exists():
                 logger.info(f"Build {build_number} already exists at {build_path}")
                 return True
             
-            # Try different download URLs
-            download_urls = [
-                f"{self.archive_url}/builds/{build_number}/download",
-                f"{self.archive_url}/builds/{build_number}/RecRoom_{build_number}.zip",
-                f"{self.archive_url}/RecRoom_{build_number}.zip",
-                f"{self.archive_url}/builds/{build_number}.zip",
-                f"{self.archive_url}/download/{build_number}",
-            ]
+            build_path.mkdir(parents=True, exist_ok=True)
             
-            build_file = None
-            success = False
+            try:
+                logger.info(f"Downloading from {download_url}")
+                response = requests.get(download_url, stream=True, timeout=300, allow_redirects=True)
+                
+                if response.status_code != 200:
+                    logger.error(f"Download failed with status {response.status_code}")
+                    return False
+                
+                logger.info(f"✓ Download started")
+                
+                # Get total file size
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                
+                # Download and save build
+                build_file = build_path / f"RecRoom_{build_number}.zip"
+                with open(build_file, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size:
+                                percent = (downloaded / total_size) * 100
+                                size_mb = downloaded / (1024*1024)
+                                total_mb = total_size / (1024*1024)
+                                logger.info(f"Download progress: {percent:.1f}% ({size_mb:.1f}MB / {total_mb:.1f}MB)")
+                
+                file_size = os.path.getsize(build_file)
+                logger.info(f"✓ Build {build_number} downloaded successfully ({file_size / (1024*1024):.1f}MB)")
+                
+                # Update manifest
+                self.manifest["builds"][build_number] = {
+                    "downloaded_at": datetime.now().isoformat(),
+                    "path": str(build_file),
+                    "size": file_size,
+                    "status": "downloaded",
+                    "timestamp": BUILD_TIMESTAMP
+                }
+                self.manifest["last_updated"] = datetime.now().isoformat()
+                self._save_manifest()
+                
+                return True
             
-            for download_url in download_urls:
-                try:
-                    logger.info(f"Trying download from {download_url}")
-                    response = requests.get(download_url, stream=True, timeout=30, allow_redirects=True)
-                    
-                    if response.status_code == 200:
-                        logger.info(f"✓ Found build at {download_url}")
-                        
-                        # Create build directory
-                        build_path.mkdir(parents=True, exist_ok=True)
-                        
-                        # Get total file size
-                        total_size = int(response.headers.get('content-length', 0))
-                        downloaded = 0
-                        
-                        # Download and save build
-                        build_file = build_path / f"RecRoom_{build_number}.zip"
-                        with open(build_file, 'wb') as f:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                if chunk:
-                                    f.write(chunk)
-                                    downloaded += len(chunk)
-                                    if total_size:
-                                        percent = (downloaded / total_size) * 100
-                                        logger.info(f"Download progress: {percent:.1f}% ({downloaded / (1024*1024):.1f}MB / {total_size / (1024*1024):.1f}MB)")
-                        
-                        logger.info(f"✓ Build {build_number} downloaded successfully ({os.path.getsize(build_file) / (1024*1024):.1f}MB)")
-                        success = True
-                        break
-                    
-                except requests.exceptions.RequestException as e:
-                    logger.debug(f"URL failed ({download_url}): {e}")
-                    continue
-            
-            if not success:
-                logger.error(f"Could not download build {build_number} from any URL")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Download failed: {e}")
                 if build_path.exists():
                     shutil.rmtree(build_path)
                 return False
-            
-            # Update manifest
-            self.manifest["builds"][build_number] = {
-                "downloaded_at": datetime.now().isoformat(),
-                "path": str(build_file),
-                "size": os.path.getsize(build_file),
-                "status": "downloaded"
-            }
-            self.manifest["last_updated"] = datetime.now().isoformat()
-            self._save_manifest()
-            
-            return True
         
         except Exception as e:
             logger.error(f"Error downloading build {build_number}: {e}")
@@ -267,7 +257,7 @@ class BuildDownloader:
                 logger.error(f"Build path does not exist: {build_path}")
                 return False
             
-            # Check for any build files (not just these specific ones)
+            # Check for any build files
             files_found = list(build_path.glob('*'))
             
             if len(files_found) > 0:
@@ -300,6 +290,7 @@ def main():
     logger.info("Rec Room Build Downloader")
     logger.info(f"Archive URL: {ARCHIVE_URL}")
     logger.info(f"Target Build: {BUILD_NUMBER}")
+    logger.info(f"Build Timestamp: {BUILD_TIMESTAMP}")
     
     # Fetch available builds
     available = downloader.get_available_builds()
@@ -307,7 +298,7 @@ def main():
         logger.info(f"Found {len(available)} available builds")
     
     # Download build
-    if downloader.download_build(BUILD_NUMBER):
+    if downloader.download_build(BUILD_NUMBER, BUILD_DOWNLOAD_URL):
         logger.info(f"Build {BUILD_NUMBER} download complete")
         
         # Extract build
