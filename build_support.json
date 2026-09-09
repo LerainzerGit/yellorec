@@ -1,0 +1,41 @@
+{
+  "build_info": {
+    "build_number": "20260323",
+    "build_date": "2026-03-23",
+    "release_stage": "production",
+    "compatibility": "full"
+  },
+  "features": {
+    "room_hosting": {
+      "enabled": true,
+      "max_players": 64,
+      "persistence": true
+    },
+    "matchmaking": {
+      "enabled": true,
+      "algorithms": ["skill-based", "latency-based"]
+    },
+    "chat": {
+      "enabled": true,
+      "features": ["text", "voice", "emotes"]
+    },
+    "inventory": {
+      "enabled": true,
+      "max_items": 1000
+    },
+    "progression": {
+      "enabled": true,
+      "leveling": true,
+      "achievements": true
+    }
+  },
+  "api_endpoints": {
+    "auth": "/api/v1/auth",
+    "rooms": "/api/v1/rooms",
+    "players": "/api/v1/players",
+    "inventory": "/api/v1/inventory",
+    "progression": "/api/v1/progression"
+  },
+  "deprecated_features": [],
+  "known_issues": []
+}
