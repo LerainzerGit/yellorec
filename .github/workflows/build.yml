@@ -1,5 +1,8 @@
 name: Build and Deploy RR Build 20260323
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -94,12 +97,10 @@ jobs:
           name: RecRoom_20260323_Yellorec
       
       - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: v20260323-yellorec
-          release_name: Rec Room Build 20260323 - Yellorec
+          name: Rec Room Build 20260323 - Yellorec
           body: |
             # Rec Room Build 20260323 - Yellorec Server Edition
             
@@ -127,18 +128,11 @@ jobs:
             - Player progression
             
             **Note**: This is a modified build for use with the Yellorec custom server.
+          files: RecRoom_20260323_Yellorec.zip
           draft: false
           prerelease: false
-      
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./RecRoom_20260323_Yellorec.zip
-          asset_name: RecRoom_20260323_Yellorec.zip
-          asset_content_type: application/zip
 
   verify-build:
     needs: download-and-modify
